@@ -139,12 +139,12 @@ class MaskCreation:
         :param radius:
         :return:
         """
-        for folder in sub_folder:
-            images_folder_list = os.listdir(os.path.join(self.data_path, folder))
-            for i, img_path in enumerate(images_folder_list):
-                mask_folder_path = os.path.join(images_folder_list, 'mask')
-                det_mask_folder_path = os.path.join(mask_folder_path, 'detection')
-                cls_mask_folder_path = os.path.join(mask_folder_path, 'classification')
+        # for folder in sub_folder:
+        #     images_folder_list = os.listdir(os.path.join(self.data_path, folder))
+        #     for i, img_path in enumerate(images_folder_list):
+        #         mask_folder_path = os.path.join(folder, img_path, 'mask')
+        #         det_mask_folder_path = os.path.join(mask_folder_path, 'detection')
+        #         cls_mask_folder_path = os.path.join(mask_folder_path, 'classification')
 
 
         for i in range(1, num):
@@ -168,7 +168,7 @@ class MaskCreation:
 
 if __name__ == '__main__':
     print('damn')
-    path = '/Users/yichen/Desktop/CRCHistoPhenotypes_2016_04_28/'
+    path = r'E:\dataset\WSI\CRCHistoPhenotypes_2016_04_28\\'
     a = MaskCreation(path)
     a.mat_to_mask()
     a.save_image_to_mask(a.data_path)

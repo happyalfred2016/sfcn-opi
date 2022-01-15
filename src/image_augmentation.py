@@ -10,7 +10,7 @@ ROOT_DIR = os.getcwd()
 if ROOT_DIR.endswith('src'):
     ROOT_DIR = os.path.dirname(ROOT_DIR)
 
-OLD_DATA_DIR = os.path.join(ROOT_DIR, 'CRCHistoPhenotypes_2016_04_28', 'cls_and_det')
+OLD_DATA_DIR = os.path.join(ROOT_DIR, 'CRCHistoPhenotypes_2016_04_28', 'Cls_and_Det')
 TRAIN_OLD_DATA_DIR = os.path.join(OLD_DATA_DIR, 'train')
 TEST_OLD_DATA_DIR = os.path.join(OLD_DATA_DIR, 'test')
 VALID_OLD_DATA_DIR = os.path.join(OLD_DATA_DIR, 'validation')

@@ -1,6 +1,8 @@
 import warnings
+
 warnings.simplefilter(action='ignore', category=FutureWarning)
 import numpy as np
+
 np.set_printoptions(threshold=np.inf)
 import os, cv2, shutil
 from scipy.io import loadmat
@@ -40,20 +42,6 @@ def set_num_step_and_aug():
     return NUM_TO_AUG, TRAIN_STEP_PER_EPOCH
 
 
-def set_gpu():
-    """
-    Set gpu config if gpu is available
-    """
-    if Config.gpu_count == 1:
-        os.environ["CUDA_VISIBLE_DEVICES"] = Config.gpu1
-    elif Config.gpu_count == 2:
-        os.environ["CUDA_VISIBLE_DEVICES"] = Config.gpu1 + ', ' + Config.gpu2
-    elif Config.gpu_count == 3:
-        os.environ["CUDA_VISIBLE_DEVICES"] = Config.gpu1 + ', ' + Config.gpu2 + ', ' + Config.gpu3
-    elif Config.gpu_count == 4:
-        os.environ["CUDA_VISIBLE_DEVICES"] = Config.gpu1 + ', ' + Config.gpu2 + ', ' + Config.gpu3 + ', ' + Config.gpu4
-
-
 def lr_scheduler(epoch):
     """
     use this for learning rate during training
@@ -80,6 +68,7 @@ def lr_scheduler(epoch):
 def aug_on_fly(img, det_mask, cls_mask):
     """Do augmentation with different combination on each training batch
     """
+
     def image_basic_augmentation(image, masks, ratio_operations=0.9):
         # without additional operations
         # according to the paper, operations such as shearing, fliping horizontal/vertical,
@@ -90,12 +79,12 @@ def aug_on_fly(img, det_mask, cls_mask):
         seq = iaa.Sequential([
             sometimes(
                 iaa.SomeOf((0, 5), [
-                iaa.Fliplr(hor_flip_angle),
-                iaa.Flipud(ver_flip_angle),
-                iaa.Affine(shear=(-16, 16)),
-                iaa.Affine(scale={'x': (1, 1.6), 'y': (1, 1.6)}),
-                iaa.PerspectiveTransform(scale=(0.01, 0.1))
-            ]))
+                    iaa.Fliplr(hor_flip_angle),
+                    iaa.Flipud(ver_flip_angle),
+                    iaa.Affine(shear=(-16, 16)),
+                    iaa.Affine(scale={'x': (1, 1.6), 'y': (1, 1.6)}),
+                    iaa.PerspectiveTransform(scale=(0.01, 0.1))
+                ]))
         ])
         det_mask, cls_mask = masks[0], masks[1]
         seq_to_deterministic = seq.to_deterministic()
@@ -107,6 +96,7 @@ def aug_on_fly(img, det_mask, cls_mask):
     aug_image, aug_det_mask, aug_cls_mask = image_basic_augmentation(image=img, masks=[det_mask, cls_mask])
     return aug_image, aug_det_mask, aug_cls_mask
 
+
 def heavy_aug_on_fly(img, det_mask):
     """Do augmentation with different combination on each training batch
     """
@@ -116,7 +106,7 @@ def heavy_aug_on_fly(img, det_mask):
         # rotating, zooming and channel shifting will be apply
         sometimes = lambda aug: iaa.Sometimes(ratio_operations, aug)
         edge_detect_sometime = lambda aug: iaa.Sometimes(0.1, aug)
-        elasitic_sometime = lambda aug:iaa.Sometimes(0.2, aug)
+        elasitic_sometime = lambda aug: iaa.Sometimes(0.2, aug)
         add_gauss_noise = lambda aug: iaa.Sometimes(0.15, aug)
         hor_flip_angle = np.random.uniform(0, 1)
         ver_flip_angle = np.random.uniform(0, 1)
@@ -129,17 +119,17 @@ def heavy_aug_on_fly(img, det_mask):
                 iaa.PerspectiveTransform(scale=(0.01, 0.1)),
 
                 # These are additional augmentation.
-                #iaa.ContrastNormalization((0.75, 1.5))
+                # iaa.ContrastNormalization((0.75, 1.5))
 
             ]),
 
             edge_detect_sometime(iaa.OneOf([
                 iaa.EdgeDetect(alpha=(0, 0.7)),
-                iaa.DirectedEdgeDetect(alpha=(0,0.7), direction=(0.0, 1.0)
+                iaa.DirectedEdgeDetect(alpha=(0, 0.7), direction=(0.0, 1.0)
                                        )
             ])),
             add_gauss_noise(iaa.AdditiveGaussianNoise(loc=0,
-                                                      scale=(0.0, 0.05*255),
+                                                      scale=(0.0, 0.05 * 255),
                                                       per_channel=0.5)
                             ),
             iaa.Sometimes(0.3,
@@ -158,8 +148,8 @@ def heavy_aug_on_fly(img, det_mask):
     return aug_image, aug_det_mask
 
 
-def train_test_split(data_path, notation_type, new_folder = 'cls_and_det', 
-                     test_sample = 20, valid_sample = 10):
+def train_test_split(data_path, notation_type, new_folder='Cls_and_Det',
+                     test_sample=20, valid_sample=10):
     """
     randomly split data into train, test and validation set. pre-defined number was based
     on sfcn-opi paper
@@ -175,7 +165,7 @@ def train_test_split(data_path, notation_type, new_folder = 'cls_and_det',
         new_folder_path = os.path.join(data_path, new_folder + '_point')
     else:
         raise Exception('notation type needs to be either ellipse or point')
-    
+
     train_new_folder = os.path.join(new_folder_path, 'train')
     test_new_folder = os.path.join(new_folder_path, 'test')
     valid_new_folder = os.path.join(new_folder_path, 'validation')
@@ -186,10 +176,10 @@ def train_test_split(data_path, notation_type, new_folder = 'cls_and_det',
     classification_folder = os.path.join(data_path, 'Classification')
 
     # Wrong if number of images in detection and classification folder are not match.
-    #assert len(os.listdir(detection_folder)) == len(os.listdir(classification_folder))
+    # assert len(os.listdir(detection_folder)) == len(os.listdir(classification_folder))
     length = len(os.listdir(detection_folder))
 
-    image_order = np.arange(1, length+1)
+    image_order = np.arange(1, length + 1)
     np.random.shuffle(image_order)
 
     for i, order in enumerate(image_order):
@@ -209,29 +199,30 @@ def train_test_split(data_path, notation_type, new_folder = 'cls_and_det',
             shutil.move(det_mat, new)
         mats = glob('{}/*.mat'.format(new), recursive=True)
         mat_list = []
-        
+
         for mat in mats:
             store_name = mat.split('.')[0]
             mat_content = loadmat(mat)
             img = Image.open(os.path.join(new, 'img{}.bmp'.format(order)))
             img.save(os.path.join(new, 'img{}_original.bmp'.format(order)))
-            
+
             if 'detection' in store_name:
                 mask = _create_binary_masks_ellipse(mat_content, notation_type=notation_type, usage='Detection')
                 mask.save('{}.bmp'.format(store_name))
-                verify_img = _drawdots_on_origin_image(mat_content, notation_type=notation_type,usage='Detection', img = img)
+                verify_img = _drawdots_on_origin_image(mat_content, notation_type=notation_type, usage='Detection',
+                                                       img=img)
                 verify_img.save('{}/img{}_verify_det.bmp'.format(new, order))
             elif 'detection' not in store_name:
                 mat_list.append(mat_content)
-        #if order == 1:
-         #   print(mat_list)
+        # if order == 1:
+        #   print(mat_list)
         cls_mask = _create_binary_masks_ellipse(mat_list, notation_type=notation_type, usage='Classification')
         cls_mask.save('{}/img{}_classification.bmp'.format(new, order))
         verify_img = _drawdots_on_origin_image(mat_list, usage='Classification', notation_type=notation_type, img=img)
         verify_img.save('{}/img{}_verify_cls.bmp'.format(new, order))
 
 
-def _reorder_image_files(datapath, files= ['train', 'test', 'validation']):
+def _reorder_image_files(datapath, files=['train', 'test', 'validation']):
     for file in files:
         sub_path = os.path.join(datapath, file)
         for i, img_folder in enumerate(os.listdir(sub_path)):
@@ -239,7 +230,7 @@ def _reorder_image_files(datapath, files= ['train', 'test', 'validation']):
             shutil.move(os.path.join(sub_path, img_folder), new_img_folder)
             dir = [os.path.join(new_img_folder, img_file) for img_file in os.listdir(new_img_folder)]
             for d in dir:
-                print('this is d: ',d)
+                print('this is d: ', d)
                 start = d.find('/img\d_')
                 new_file = os.path.join(img_folder, 'img{}'.format(i + 1), d[start:])
                 os.rename(d, new_file)
@@ -264,7 +255,7 @@ def check_cv2_imwrite(file_path, file):
         cv2.imwrite(file_path, file)
 
 
-def _draw_points(dots, img, color, notation_type, radius = 3):
+def _draw_points(dots, img, color, notation_type, radius=3):
     if dots is not None:
         canvas = ImageDraw.Draw(img)
         if notation_type == 'point':
@@ -304,7 +295,7 @@ def _create_binary_masks_ellipse(mats, usage, notation_type, color=[1, 2, 3, 4])
     return mask
 
 
-def _drawdots_on_origin_image(mats, usage, img, notation_type, color = ['yellow', 'green', 'blue', 'red']):
+def _drawdots_on_origin_image(mats, usage, img, notation_type, color=['yellow', 'green', 'blue', 'red']):
     """
     For visualizatoin purpose, draw different color on original image.
     :param mats:
@@ -316,7 +307,7 @@ def _drawdots_on_origin_image(mats, usage, img, notation_type, color = ['yellow'
     if usage == 'Classification':
         for i, mat in enumerate(mats):
             mat_content = mat['detection']
-            _draw_points(mat_content, img, color[i], notation_type = notation_type)
+            _draw_points(mat_content, img, color[i], notation_type=notation_type)
     elif usage == 'Detection':
         mat_content = mats['detection']
         _draw_points(mat_content, img, color[0], notation_type=notation_type)
@@ -325,7 +316,7 @@ def _drawdots_on_origin_image(mats, usage, img, notation_type, color = ['yellow'
 
 def create_binary_masks(mat):
     polygon = [(point[0], point[1]) for point in mat]
-    #print(polygon)
+    # print(polygon)
     mask = Image.new('L', (500, 500), 0)
     ImageDraw.Draw(mask).polygon(polygon, outline=1, fill=1)
     return mask
@@ -337,15 +328,15 @@ def img_test(i, type):
     :param i: which image
     :param type: train, test or validation
     """
-    img = Image.open(os.path.join(p, 'cls_and_det', type, 'img{}'.format(i), 'img{}.bmp'.format(i)))
+    img = Image.open(os.path.join(p, 'Cls_and_Det', type, 'img{}'.format(i), 'img{}.bmp'.format(i)))
     imgd = Image.open(
-       os.path.join(p, 'cls_and_det', type, 'img{}'.format(i), 'img{}_detection.bmp'.format(i)))
+        os.path.join(p, 'Cls_and_Det', type, 'img{}'.format(i), 'img{}_detection.bmp'.format(i)))
     imgc = Image.open(
-       os.path.join(p, 'cls_and_det', type, 'img{}'.format(i), 'img{}_classification.bmp'.format(i)))
+        os.path.join(p, 'Cls_and_Det', type, 'img{}'.format(i), 'img{}_classification.bmp'.format(i)))
     imgv = Image.open(
-       os.path.join(p, 'cls_and_det', type, 'img{}'.format(i), 'img{}_verifiy_classification.bmp'.format(i)))
+        os.path.join(p, 'Cls_and_Det', type, 'img{}'.format(i), 'img{}_verifiy_classification.bmp'.format(i)))
     imgz = Image.open(
-       os.path.join(p, 'cls_and_det', type, 'img{}'.format(i), 'img{}_verifiy_detection.bmp'.format(i)))
+        os.path.join(p, 'Cls_and_Det', type, 'img{}'.format(i), 'img{}_verifiy_detection.bmp'.format(i)))
     contrast = ImageEnhance.Contrast(imgd)
     contrast2 = ImageEnhance.Contrast(imgc)
     img.show(img)
@@ -355,12 +346,12 @@ def img_test(i, type):
     contrast2.enhance(20).show(imgc)
 
 
-def load_data(data_path, type, det=True, cls=False, reshape_size=None):
-    path = os.path.join(data_path, type)  # cls_and_det/train
+def load_data(data_path, type, det=True, cls=True, reshape_size=None):
+    path = os.path.join(data_path, type)  # Cls_and_Det/train
     imgs, det_masks, cls_masks = [], [], []
     for i, file in enumerate(os.listdir(path)):
         for j, img_file in enumerate(os.listdir(os.path.join(path, file))):
-            if 'original.bmp' in img_file:
+            if '.bmp' in img_file:
                 img_path = os.path.join(path, file, img_file)
                 img = cv2.imread(img_path)
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -368,27 +359,38 @@ def load_data(data_path, type, det=True, cls=False, reshape_size=None):
                     img = cv2.resize(img, reshape_size)
                 img = _image_normalization(img)
                 imgs.append(img)
-            elif 'detection.bmp' in img_file and det == True:
-                det_mask_path = os.path.join(path, file, img_file)
-                #det_mask = skimage.io.imread(det_mask_path, True).astype(np.bool)
+            if 'mask' in img_file and det == True:
+                det_mask_path = os.path.join(path, file, img_file, 'detection', 'det_%s.png' % file)
+                # det_mask = skimage.io.imread(det_mask_path, True).astype(np.bool)
                 det_mask = cv2.imread(det_mask_path, 0)
                 if reshape_size is not None:
                     det_mask = cv2.resize(det_mask, reshape_size)
+                # TODO@alfred
+                det_mask[det_mask > 0] = 1
                 det_masks.append(det_mask)
-            elif 'classification.bmp' in img_file and cls == True:
-                if cls == True:
-                    cls_mask_path = os.path.join(path, file, img_file)
-                    cls_mask = cv2.imread(cls_mask_path, 0)
-                    if reshape_size != None:
-                        cls_mask = cv2.resize(cls_mask, reshape_size)
-                    cls_masks.append(cls_mask)
+            if 'mask' in img_file and cls == True:
+                cls_mask_path = os.path.join(path, file, img_file, 'classification', 'cls_%s.png' % file)
+                cls_mask = cv2.imread(cls_mask_path, 0)
+                if reshape_size != None:
+                    cls_mask = cv2.resize(cls_mask, reshape_size)
+
+                # TODO@alfred
+                cls_mask[cls_mask == 56] = 1
+                cls_mask[cls_mask == 106] = 2
+                cls_mask[cls_mask == 156] = 3
+                cls_mask[cls_mask == 206] = 4
+                cls_masks.append(cls_mask)
     return np.array(imgs), np.array(det_masks), np.array(cls_masks)
 
 
 def _image_normalization(image):
-    img = image / 255.
-    img -= np.mean(img, keepdims=True)
-    img /= (np.std(img, keepdims=True) + 1e-7)
+    # TODO@alfred: this will affect the downstream augmentation which are only tested on uint8
+    img = image
+    assert img.dtype == np.uint8
+
+    # img = image / 255.
+    # img -= np.mean(img, keepdims=True)
+    # img /= (np.std(img, keepdims=True) + 1e-7)
     return img
 
 
@@ -397,8 +399,8 @@ class DataGenerator:
         self.features = features
         self.labels = labels
 
-    #@staticmethod
-    #def generator_without_augmentation():
+    # @staticmethod
+    # def generator_without_augmentation():
 
 
 def get_metrics(gt, pred, r=3):
@@ -409,7 +411,6 @@ def get_metrics(gt, pred, r=3):
             return 1, 1, 1
         else:
             return 0, 0, 0
-
 
     pred = np.array(pred).astype('int')
 
@@ -423,11 +424,11 @@ def get_metrics(gt, pred, r=3):
         for i in range(gt.shape[0]):
             x = gt[i, 0]
             y = gt[i, 1]
-            x1 = max(0, x-r)
-            y1 = max(0, y-r)
-            x2 = min(x_max, x+r)
-            y2 = min(y_max, y+r)
-            gt_map[y1:y2,x1:x2] = 1
+            x1 = max(0, x - r)
+            y1 = max(0, y - r)
+            x2 = min(x_max, x + r)
+            y2 = min(y_max, y + r)
+            gt_map[y1:y2, x1:x2] = 1
 
         pred_map = np.zeros((y_max, x_max), dtype='int')
         for i in range(pred.shape[0]):
@@ -438,9 +439,9 @@ def get_metrics(gt, pred, r=3):
         result_map = gt_map * pred_map
         tp = result_map.sum()
 
-        precision = tp / (pred.shape[0])# + epsilon)
-        recall = tp / (gt.shape[0])# + epsilon)
-        f1_score = 2 * (precision * recall / (precision + recall))# + epsilon))
+        precision = tp / (pred.shape[0])  # + epsilon)
+        recall = tp / (gt.shape[0])  # + epsilon)
+        f1_score = 2 * (precision * recall / (precision + recall))  # + epsilon))
 
         return precision, recall, f1_score
 
