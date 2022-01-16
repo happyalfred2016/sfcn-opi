@@ -6,7 +6,7 @@ from keras.layers import Input, Conv2D, Add, BatchNormalization, Activation, Lam
     Concatenate
 from keras.models import Model
 from keras.utils import np_utils
-from keras.optimizers import SGD
+from keras.optimizers import SGD, Adam
 from keras.callbacks import EarlyStopping, TensorBoard, ModelCheckpoint, Callback
 from util import load_data
 import os, time
@@ -371,20 +371,9 @@ def data_prepare(print_image_shape=False, print_input_shape=False):
                                                                              test_cls_masks.shape))
         print()
 
-    train_det = np_utils.to_categorical(train_det_masks, 2)
-    # train_det = reshape_mask(train_det_masks, train_det, 2)
-    train_cls = np_utils.to_categorical(train_cls_masks, 5)
-    # train_cls = reshape_mask(train_cls_masks, train_cls, 5)
-
-    valid_det = np_utils.to_categorical(valid_det_masks, 2)
-    # valid_det = reshape_mask(valid_det_masks, valid_det, 2)
-    valid_cls = np_utils.to_categorical(valid_cls_masks, 5)
-    # valid_cls = reshape_mask(valid_cls_masks, valid_cls, 5)
-
-    test_det = np_utils.to_categorical(test_det_masks, 2)
-    # test_det = reshape_mask(test_det_masks, test_det, 2)
-    test_cls = np_utils.to_categorical(test_cls_masks, 5)
-    # test_cls = reshape_mask(test_cls_masks, test_cls, 5)
+    train_det, train_cls = np.expand_dims(train_det_masks, axis=-1), np.expand_dims(train_cls_masks, axis=-1)
+    valid_det, valid_cls = np.expand_dims(valid_det_masks, axis=-1), np.expand_dims(valid_cls_masks, axis=-1)
+    test_det, test_cls = np.expand_dims(test_det_masks, axis=-1), np.expand_dims(test_cls_masks, axis=-1)
 
     if print_input_shape:
         print('input shape print below: ')
@@ -427,11 +416,12 @@ def aug_on_fly(img, det_mask, cls_mask):
                     iaa.PerspectiveTransform(scale=(0.01, 0.1))
                 ]))
         ])
-        det_mask, cls_mask = masks[0], masks[1]
+
         seq_to_deterministic = seq.to_deterministic()
-        aug_img = seq_to_deterministic.augment_images(image)
-        aug_det_mask = seq_to_deterministic.augment_images(det_mask)
-        aug_cls_mask = seq_to_deterministic.augment_images(cls_mask)
+        aug_img, aug_det_mask = seq_to_deterministic(images=image, segmentation_maps=masks[0])
+        _aug_img, aug_cls_mask = seq_to_deterministic(images=image, segmentation_maps=masks[1])
+
+        assert np.isclose(_aug_img, aug_img).all()
         return aug_img, aug_det_mask, aug_cls_mask
 
     aug_image, aug_det_mask, aug_cls_mask = image_basic_augmentation(image=img, masks=[det_mask, cls_mask])
@@ -454,8 +444,8 @@ def generator_with_aug(features, det_labels, cls_labels, batch_size, crop_size,
     """
     assert type in ['detection', 'classification', 'joint']
     batch_features = np.zeros((batch_size * crop_num * aug_num, crop_size, crop_size, 3))
-    batch_det_labels = np.zeros((batch_size * crop_num * aug_num, crop_size, crop_size, 2))
-    batch_cls_labels = np.zeros((batch_size * crop_num * aug_num, crop_size, crop_size, 5))
+    batch_det_labels = np.zeros((batch_size * crop_num * aug_num, crop_size, crop_size, det_labels.shape[-1]))
+    batch_cls_labels = np.zeros((batch_size * crop_num * aug_num, crop_size, crop_size, cls_labels.shape[-1]))
     while True:
         counter = 0
         for i in range(batch_size):
@@ -592,11 +582,15 @@ def tune_loss_weight():
     use this function to fine tune weights later.
     :return:
     """
+
+    # y_train = [y.argmax() for y in y_train]
+    # class_weight.compute_class_weight('balanced', np.unique(y_train), y_train)
+
     print('weight initialized')
     cls_weight = np.array([0.5, 0.9, 1.01, 0.68, 1.9])
 
     # TODO: verify
-    det_weight = np.array([1., 50])
+    det_weight = np.array([1., 100.])
     cls_weight_in_joint = [0.5, 0.83, 0.94, 0.78, 2]
     joint_weight = 1
     kernel_weight = 1
@@ -623,14 +617,8 @@ def save_model_weights(type, hyper):
 
 
 if __name__ == '__main__':
-
-    # TODO: 1. del all weighted loss, add it to fitting! 2. turn on all softmax, set loss to standard keras loss
-
+    # TODO@alfred(20220116): 1. detecton performance is not good. 2. the loss for classification is wrong.
     weights = tune_loss_weight()
-
-    # y_train = [y.argmax() for y in y_train]
-    # class_weight.compute_class_weight('balanced', np.unique(y_train), y_train)
-    det_weight = {0: 1., 1: 50.}
 
     CROP_SIZE = 64
     BATCH_SIZE = 1
@@ -640,30 +628,32 @@ if __name__ == '__main__':
 
     data = data_prepare(print_input_shape=True, print_image_shape=True)
     network = SFCNnetwork(l2_regularizer=weights[-1])
-    optimizer = SGD(lr=Config.lr, momentum=0.9, decay=1e-6, nesterov=True)
+    # optimizer = SGD(lr=Config.lr, momentum=0.9, decay=1e-6, nesterov=True)
+
+    optimizer = Adam(lr=1e-3, decay=1e-4)
 
     model_weights_saver = save_model_weights('base', str(EPOCHS))
 
     # Train Detection Branch
-    if not os.path.exists(model_weights_saver[0]):
-        det_model = det_model_compile(nn=network, det_loss_weight=weights[0], optimizer=optimizer,
-                                      softmax_trainable=False)
-        print('detection model is training')
-        det_model.fit_generator(generator_with_aug(data[0], data[1], data[2],
-                                                   crop_size=CROP_SIZE,
-                                                   batch_size=BATCH_SIZE,
-                                                   crop_num=NUM_TO_CROP, aug_num=NUM_TO_AUG,
-                                                   type='detection'),
-                                epochs=EPOCHS,
-                                steps_per_epoch=TRAIN_STEP_PER_EPOCH,
-                                validation_data=generator_with_aug(data[3], data[4], data[5],
-                                                                   batch_size=BATCH_SIZE, crop_size=CROP_SIZE,
-                                                                   crop_num=NUM_TO_CROP, aug_num=NUM_TO_AUG,
-                                                                   type='detection'),
-                                validation_steps=5,
-                                callbacks=callback_preparation(det_model), )
+    # if not os.path.exists(model_weights_saver[0]):
+    det_model = det_model_compile(nn=network, det_loss_weight=weights[0], optimizer=optimizer,
+                                  softmax_trainable=False, summary=True)
+    print('detection model is training')
+    det_model.fit_generator(generator_with_aug(data[0], data[1], data[2],
+                                               crop_size=CROP_SIZE,
+                                               batch_size=BATCH_SIZE,
+                                               crop_num=NUM_TO_CROP, aug_num=NUM_TO_AUG,
+                                               type='detection'),
+                            epochs=EPOCHS,
+                            steps_per_epoch=TRAIN_STEP_PER_EPOCH,
+                            validation_data=generator_with_aug(data[3], data[4], data[5],
+                                                               batch_size=BATCH_SIZE, crop_size=CROP_SIZE,
+                                                               crop_num=NUM_TO_CROP, aug_num=NUM_TO_AUG,
+                                                               type='detection'),
+                            validation_steps=5,
+                            callbacks=callback_preparation(det_model), )
 
-        det_model.save_weights(model_weights_saver[0])
+    det_model.save_weights(model_weights_saver[0])
 
     # Train Classification Branch
     if not os.path.exists(model_weights_saver[1]):
@@ -704,6 +694,3 @@ if __name__ == '__main__':
                                                                      type='joint'),
                                   validation_steps=5, callbacks=callback_preparation(joint_model))
         joint_model.save_weights(model_weights_saver[2])
-
-
-

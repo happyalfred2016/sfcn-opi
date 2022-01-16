@@ -38,23 +38,24 @@ if os.path.exists(model_weights_saver[0]):
                                      batch_size=BATCH_SIZE, crop_size=CROP_SIZE,
                                      crop_num=NUM_TO_CROP, aug_num=10,
                                      type='detection'):
-        im_in = im[0:1, :, :, :]
-        la_in = la[0:1, :, :, 0]
+        im_in = im[0:1]
+        la_in = la[0]
         plt.subplot(121)
         plt.imshow(im_in[0].astype(np.uint8))
         plt.subplot(122)
-        plt.imshow((la_in[0] * 255).astype(np.uint8))
+        plt.imshow((la_in.squeeze() * 255).astype(np.uint8))
         plt.show()
 
 
 
         pre = det_model.predict(im_in)
-        pre = softmax(pre, axis=-1)
+        pre = softmax(pre, axis=-1)[0, :, :, 1]
 
         plt.subplot(121)
         plt.imshow(im_in[0].astype(np.uint8))
         plt.subplot(122)
-        plt.imshow((pre[0, :, :, 1] * 255).astype(np.uint8))
+        plt.imshow((pre * 255).astype(np.uint8))
         plt.show()
 
         break
+
