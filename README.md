@@ -24,4 +24,8 @@ This dataset involves 100 H&E stained histology images of colorectal adenocarcin
  You can use masks_creation.py and function in utils.py to do data preprocessing for you.
  
  
- # loss function for classification looks problematic, since it do not use y_true.
+ ###Note
+ modification and fixing have been made to make it work!
+ 
+ the dataset webpage have been moved to https://warwick.ac.uk/fac/cross_fac/tia/data/crchistolabelednucleihe/
+ 

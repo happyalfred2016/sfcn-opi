@@ -21,7 +21,17 @@ def detection_loss(weight):
     return _detection_loss
 
 
-def classification_loss(weights, threshold=cls_threshold):
+def _gen_weight(y_true, weight):
+    weights = tf.convert_to_tensor(weight, dtype=tf.float32)
+    c0 = tf.cast(tf.equal(y_true, 0), tf.float32) * weights[0]
+    c1 = tf.cast(tf.equal(y_true, 1), tf.float32) * weights[1]
+    c2 = tf.cast(tf.equal(y_true, 2), tf.float32) * weights[2]
+    c3 = tf.cast(tf.equal(y_true, 3), tf.float32) * weights[3]
+    c4 = tf.cast(tf.equal(y_true, 4), tf.float32) * weights[4]
+    return c0 + c1 + c2 + c3 + c4
+
+
+def classification_loss(weight, threshold=cls_threshold):
     """
     Classification loss for classification branch.
     :param weights: classification weight for each type of cells.
@@ -29,13 +39,12 @@ def classification_loss(weights, threshold=cls_threshold):
     """
 
     def _classification_loss(y_true, y_pred):
-        indicator = tf.greater_equal(y_pred, threshold, name='indicator_great')
+        _y_true = tf.squeeze(tf.cast(y_true, tf.int32), axis=-1)
+        indicator = tf.greater_equal(K.sum(K.softmax(y_pred, axis=-1)[:, :, :, 1:], axis=-1, keepdims=True),
+                                     threshold, name='indicator_great')
         indicator = tf.cast(indicator, tf.float32, name='indicator_cast')
-        class_weights = tf.convert_to_tensor(weights, name='cls_weight_convert')
-        class_weights = tf.cast(class_weights, tf.float32)
-        logits = tf.clip_by_value(y_pred, epsilon, 1 - epsilon)
-        logits = tf.cast(logits, tf.float32, name='logits_cast')
-        loss = -tf.reduce_mean(class_weights * indicator * tf.log(logits, name='logitslog'))
+        weights = tf.stop_gradient(_gen_weight(y_true, weight)) * indicator
+        loss = tf.losses.sparse_softmax_cross_entropy(_y_true, y_pred, weights=weights)
         return loss
 
     return _classification_loss
@@ -52,25 +61,24 @@ def joint_loss(det_weights, cls_joint_weights, joint_weights, cls_threshold=cls_
 
     def _joint_loss(y_true, y_pred):
         def _detection_loss(y_true, y_pred, det_weights):
-            weight = tf.convert_to_tensor([det_weights[0], det_weights[0], det_weights[0],
-                                           det_weights[0], det_weights[0]])
-            weight = tf.cast(weight, tf.int32)
+            weights = tf.stop_gradient(_gen_weight(y_true, [det_weights[0],
+                                                            det_weights[1],
+                                                            det_weights[1],
+                                                            det_weights[1],
+                                                            det_weights[1]]))
 
             _y_true = tf.squeeze(tf.cast(y_true, tf.int32), axis=-1)
-            weights = tf.stop_gradient(
-                tf.reshape(tf.map_fn(lambda x: weight[x], tf.reshape(_y_true, [-1])), tf.shape(y_true)))
-            weights = tf.cast(weights, tf.float32)
             result = tf.losses.sparse_softmax_cross_entropy(_y_true, y_pred, weights=weights)
             return result
 
         def _classification_loss(y_true, y_pred, cls_joint_weights, threshold):
-            indicator = tf.greater_equal(y_pred, threshold, name='indicator_great')
+            _y_true = tf.squeeze(tf.cast(y_true, tf.int32), axis=-1)
+            indicator = tf.greater_equal(K.sum(K.softmax(y_pred, axis=-1)[:, :, :, 1:], axis=-1, keepdims=True),
+                                         threshold, name='indicator_great')
             indicator = tf.cast(indicator, tf.float32, name='indicator_cast')
-            class_weights = tf.convert_to_tensor(cls_joint_weights, name='cls_weight_convert')
-            class_weights = tf.cast(class_weights, tf.float32)
-            logits = tf.clip_by_value(y_pred, epsilon, 1 - epsilon)
-            logits = tf.cast(logits, tf.float32, name='logits_cast')
-            loss = -tf.reduce_mean(class_weights * indicator * tf.log(logits, name='logitslog'))
+            weights = tf.stop_gradient(_gen_weight(y_true, cls_joint_weights)) * indicator
+            loss = tf.losses.sparse_softmax_cross_entropy(_y_true, y_pred, weights=weights)
+
             return loss
 
         det_loss = _detection_loss(y_true, y_pred, det_weights)

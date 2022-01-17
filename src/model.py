@@ -471,8 +471,7 @@ def generator_with_aug(features, det_labels, cls_labels, batch_size, crop_size,
 
 
 def generator_without_aug(features, det_labels, cls_labels, batch_size, crop_size,
-                          type,
-                          crop_num=25):
+                          type, crop_num=25):
     """
     generator without any augmentation, only randomly crop image into [64, 64, channel].
     :param features: image.
@@ -483,19 +482,41 @@ def generator_without_aug(features, det_labels, cls_labels, batch_size, crop_siz
     :param crop_num: how many cropped image for a single image.
     """
     batch_features = np.zeros((batch_size * crop_num, crop_size, crop_size, 3))
-    batch_det_labels = np.zeros((batch_size * crop_num, crop_size, crop_size, 2))
-    batch_cls_labels = np.zeros((batch_size * crop_num, crop_size, crop_size, 5))
+    batch_det_labels = np.zeros((batch_size * crop_num, crop_size, crop_size, det_labels.shape[-1]))
+    batch_cls_labels = np.zeros((batch_size * crop_num, crop_size, crop_size, cls_labels.shape[-1]))
     while True:
         counter = 0
         for i in range(batch_size):
             index = np.random.choice(features.shape[0], 1)
             for j in range(crop_num):
-                feature, det_label, cls_label = crop_on_fly(features[index],
-                                                            det_labels[index], cls_labels[index], crop_size=crop_size)
+                feature, det_label, cls_label = crop_on_fly(features[index], det_labels[index],
+                                                            cls_labels[index], crop_size=crop_size)
                 batch_features[counter] = feature
                 batch_det_labels[counter] = det_label
                 batch_cls_labels[counter] = cls_label
                 counter += 1
+        if type == 'detection':
+            yield batch_features, batch_det_labels
+        elif type == 'classification' or type == 'joint':
+            yield batch_features, batch_cls_labels
+
+
+def generator_origin(features, det_labels, cls_labels, batch_size, type):
+    img_h, img_w = features.shape[1], features.shape[2]
+    batch_features = np.zeros((batch_size, img_h, img_w, 3))
+    batch_det_labels = np.zeros((batch_size, img_h, img_w, det_labels.shape[-1]))
+    batch_cls_labels = np.zeros((batch_size, img_h, img_w, cls_labels.shape[-1]))
+
+    counter = 0
+    while True:
+
+        nbat = counter % int(np.ceil(features.shape[0] / batch_size))
+        counter += 1
+        for index in range(nbat * batch_size, min((nbat + 1) * batch_size, features.shape[0])):
+            batch_features[index % batch_size] = features[index]
+            batch_det_labels[index % batch_size] = det_labels[index]
+            batch_cls_labels[index % batch_size] = cls_labels[index]
+
         if type == 'detection':
             yield batch_features, batch_det_labels
         elif type == 'classification' or type == 'joint':
@@ -583,15 +604,16 @@ def tune_loss_weight():
     :return:
     """
 
-    # y_train = [y.argmax() for y in y_train]
-    # class_weight.compute_class_weight('balanced', np.unique(y_train), y_train)
+    # from sklearn.utils import class_weight
+    # # y_train = [y.argmax() for y in y_train]
+    # class_weight.compute_class_weight('balanced', np.unique(data[2].ravel()), data[2].ravel())
 
     print('weight initialized')
-    cls_weight = np.array([0.5, 0.9, 1.01, 0.68, 1.9])
+    cls_weight = np.array([0.20200068, 173.43045439, 83.63201912, 102.70254409, 45.32739329])
 
     # TODO: verify
-    det_weight = np.array([1., 100.])
-    cls_weight_in_joint = [0.5, 0.83, 0.94, 0.78, 2]
+    det_weight = np.array([0.50778351, 32.61919052])
+    cls_weight_in_joint = cls_weight
     joint_weight = 1
     kernel_weight = 1
     return [det_weight, cls_weight, cls_weight_in_joint, joint_weight, kernel_weight]
@@ -629,31 +651,29 @@ if __name__ == '__main__':
     data = data_prepare(print_input_shape=True, print_image_shape=True)
     network = SFCNnetwork(l2_regularizer=weights[-1])
     # optimizer = SGD(lr=Config.lr, momentum=0.9, decay=1e-6, nesterov=True)
-
     optimizer = Adam(lr=1e-3, decay=1e-4)
-
     model_weights_saver = save_model_weights('base', str(EPOCHS))
 
     # Train Detection Branch
-    # if not os.path.exists(model_weights_saver[0]):
-    det_model = det_model_compile(nn=network, det_loss_weight=weights[0], optimizer=optimizer,
-                                  softmax_trainable=False, summary=True)
-    print('detection model is training')
-    det_model.fit_generator(generator_with_aug(data[0], data[1], data[2],
-                                               crop_size=CROP_SIZE,
-                                               batch_size=BATCH_SIZE,
-                                               crop_num=NUM_TO_CROP, aug_num=NUM_TO_AUG,
-                                               type='detection'),
-                            epochs=EPOCHS,
-                            steps_per_epoch=TRAIN_STEP_PER_EPOCH,
-                            validation_data=generator_with_aug(data[3], data[4], data[5],
-                                                               batch_size=BATCH_SIZE, crop_size=CROP_SIZE,
-                                                               crop_num=NUM_TO_CROP, aug_num=NUM_TO_AUG,
-                                                               type='detection'),
-                            validation_steps=5,
-                            callbacks=callback_preparation(det_model), )
+    if not os.path.exists(model_weights_saver[0]):
+        det_model = det_model_compile(nn=network, det_loss_weight=weights[0], optimizer=optimizer,
+                                      softmax_trainable=False, summary=True)
+        print('detection model is training')
+        det_model.fit_generator(generator_with_aug(data[0], data[1], data[2],
+                                                   crop_size=CROP_SIZE,
+                                                   batch_size=BATCH_SIZE,
+                                                   crop_num=NUM_TO_CROP, aug_num=NUM_TO_AUG,
+                                                   type='detection'),
+                                epochs=EPOCHS,
+                                steps_per_epoch=TRAIN_STEP_PER_EPOCH,
+                                validation_data=generator_origin(data[3], data[4], data[5],
+                                                                 batch_size=BATCH_SIZE,
+                                                                 type='detection'),
+                                validation_steps=int(np.ceil(data[3].shape[0] / BATCH_SIZE)),
+                                callbacks=callback_preparation(det_model),
+                                workers=4)
 
-    det_model.save_weights(model_weights_saver[0])
+        det_model.save_weights(model_weights_saver[0])
 
     # Train Classification Branch
     if not os.path.exists(model_weights_saver[1]):
@@ -672,7 +692,9 @@ if __name__ == '__main__':
                                                                    batch_size=BATCH_SIZE, crop_size=CROP_SIZE,
                                                                    crop_num=NUM_TO_CROP, aug_num=NUM_TO_AUG,
                                                                    type='classification'),
-                                validation_steps=5, callbacks=callback_preparation(cls_model))
+                                validation_steps=5,
+                                callbacks=callback_preparation(cls_model),
+                                workers=4)
         cls_model.save_weights(model_weights_saver[1])
 
     # Train Joint Model
@@ -692,5 +714,7 @@ if __name__ == '__main__':
                                                                      batch_size=BATCH_SIZE, crop_size=CROP_SIZE,
                                                                      crop_num=NUM_TO_CROP, aug_num=NUM_TO_AUG,
                                                                      type='joint'),
-                                  validation_steps=5, callbacks=callback_preparation(joint_model))
+                                  validation_steps=5,
+                                  callbacks=callback_preparation(joint_model),
+                                  workers=4)
         joint_model.save_weights(model_weights_saver[2])

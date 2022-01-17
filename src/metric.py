@@ -16,6 +16,7 @@ def non_max_suppression(img, overlap_thresh=0.1, max_boxes=1200, r=5, prob_thres
     :param r: the radius of the circle.
     :param prob_thresh: to show only if its above the probability threshold.
     """
+    img = img.copy()
     x1s = []
     y1s = []
     x2s = []
