@@ -5,26 +5,19 @@ import keras.backend as K
 from keras.layers import Input, Conv2D, Add, BatchNormalization, Activation, Lambda, Multiply, Conv2DTranspose, \
     Concatenate
 from keras.models import Model
-from keras.utils import np_utils
-from keras.optimizers import SGD, Adam
+
 from keras.callbacks import EarlyStopping, TensorBoard, ModelCheckpoint, Callback
-from util import load_data
 import os, time
-from image_augmentation import ImageCropping
 from imgaug import augmenters as iaa
-from loss import detection_loss, classification_loss, joint_loss
-from config import Config
+
+from .util import load_data
+from .image_augmentation import ImageCropping
+from .loss import detection_loss, classification_loss, joint_loss
+
 
 weight_decay = 0.005
 epsilon = 1e-7
 
-ROOT_DIR = os.getcwd()
-if ROOT_DIR.endswith('src'):
-    ROOT_DIR = os.path.dirname(ROOT_DIR)
-
-DATA_DIR = os.path.join(ROOT_DIR, 'CRCHistoPhenotypes_2016_04_28', 'Cls_and_Det')
-TENSORBOARD_DIR = os.path.join(ROOT_DIR, 'tensorboard_logs')
-CHECKPOINT_DIR = os.path.join(ROOT_DIR, 'checkpoint')
 
 
 class Conv3l2(keras.layers.Conv2D):
@@ -255,7 +248,8 @@ class SFCNnetwork:
     ############################
     def classification_branch_wrapper(self, input, softmax_trainable=False):
         x = self.res_block(input, filter=128, stages=9, block=4)
-        # all layers before OPI
+        # # all layers before OPI
+        # x = input
         x = Conv2D(filters=5, kernel_size=(1, 1), padding='same', name='conv2d_after_fourth_resblock',
                    kernel_regularizer=keras.regularizers.l2(self.l2r))(x)
         x = BatchNormalization(name='bn_after_fourth_resblock')(x)
@@ -273,7 +267,39 @@ class SFCNnetwork:
         x_output = BatchNormalization(name='last_bn_before_cls')(x)
         if softmax_trainable == True:
             x_output = Activation('softmax', name='Classification_output')(x_output)
+
         return x_output
+
+    def _mcls_branch_wrapper(self, input_one, input_two, trainable=True, softmax_trainable=False, num_class=5):
+
+        x_divergent_one = Conv2D(filters=num_class, kernel_size=(1, 1), padding='same',
+                                 trainable=trainable, kernel_initializer='glorot_normal', bias_initializer='zeros')(input_one)
+        x_divergent_one = BatchNormalization(trainable=trainable)(x_divergent_one)
+        x_divergent_one = Activation('relu', trainable=trainable)(x_divergent_one)
+
+        x_divergent_two = self.res_block(input_two, filter=128, stages=9, block=4)
+        x_divergent_two = Conv2D(filters=num_class, kernel_size=(1, 1), padding='same',
+                                 kernel_regularizer=keras.regularizers.l2(self.l2r),
+                                 trainable=trainable, kernel_initializer='glorot_normal', bias_initializer='zeros')(x_divergent_two)
+        x_divergent_two = BatchNormalization(trainable=trainable)(x_divergent_two)
+        x_divergent_two = Activation('relu', trainable=trainable)(x_divergent_two)
+
+        x_divergent_two = Conv2DTranspose(filters=num_class, kernel_size=(3, 3), strides=(2, 2), padding='same',
+                                          kernel_regularizer=keras.regularizers.l2(self.l2r),
+                                          trainable=trainable, kernel_initializer='glorot_normal', bias_initializer='zeros')(x_divergent_two)
+        x_divergent_two = BatchNormalization(trainable=trainable)(x_divergent_two)
+        x_divergent_two = Activation('relu', trainable=trainable)(x_divergent_two)
+
+        x_merge = Add(trainable=trainable)([x_divergent_one, x_divergent_two])
+        # x_merge = x_divergent_two
+        x_detection = Conv2DTranspose(filters=num_class, kernel_size=(3, 3), strides=(2, 2), padding='same',
+                                      kernel_regularizer=keras.regularizers.l2(self.l2r),
+                                      trainable=trainable, kernel_initializer='glorot_normal', bias_initializer='zeros')(x_merge)
+        x_detection = BatchNormalization(trainable=trainable)(x_detection)
+        # The detection output
+        if softmax_trainable == True:
+            x_detection = Activation('softmax', trainable=trainable)(x_detection)
+        return x_detection
 
     def classification_branch(self, trainable=False, softmax_trainable=False):
         """classification branch, seprate from detection branch.
@@ -282,7 +308,10 @@ class SFCNnetwork:
         nimg = self.input_normalize(input_img)
         # this shared layer is frozen before joint training
         x_useless, x_cls = self.share_layer(nimg, trainable=trainable)
-        cls_output = self.classification_branch_wrapper(x_cls, softmax_trainable=softmax_trainable)
+
+        # cls_output = self.classification_branch_wrapper(x_cls, softmax_trainable=softmax_trainable)
+        cls_output = self._mcls_branch_wrapper(x_useless, x_cls, softmax_trainable=softmax_trainable, num_class=2)
+
         cls_model = Model(inputs=input_img,
                           outputs=cls_output)
         return cls_model
@@ -345,7 +374,7 @@ class TimerCallback(Callback):
         print('epoch takes {} seconds to train'.format(np.round(time.time() - self.epoch_time), 2))
 
 
-def data_prepare(print_image_shape=False, print_input_shape=False):
+def data_prepare(data_dir, print_image_shape=False, print_input_shape=False):
     """
     prepare data for model.
     :param print_image_shape: print image shape if set true.
@@ -356,9 +385,9 @@ def data_prepare(print_image_shape=False, print_input_shape=False):
     def reshape_mask(origin, cate, num_class):
         return cate.reshape((origin.shape[0], origin.shape[1], origin.shape[2], num_class))
 
-    train_imgs, train_det_masks, train_cls_masks = load_data(data_path=DATA_DIR, type='train')
-    valid_imgs, valid_det_masks, valid_cls_masks = load_data(data_path=DATA_DIR, type='validation')
-    test_imgs, test_det_masks, test_cls_masks = load_data(data_path=DATA_DIR, type='test')
+    train_imgs, train_det_masks, train_cls_masks = load_data(data_path=data_dir, type='train')
+    valid_imgs, valid_det_masks, valid_cls_masks = load_data(data_path=data_dir, type='validation')
+    test_imgs, test_det_masks, test_cls_masks = load_data(data_path=data_dir, type='test')
 
     if print_image_shape:
         print('Image shape print below: ')
@@ -523,15 +552,15 @@ def generator_origin(features, det_labels, cls_labels, batch_size, type):
             yield batch_features, batch_cls_labels
 
 
-def callback_preparation(model):
+def callback_preparation(model, log_dir, checkpoint_dir):
     """
     implement necessary callbacks into model.
     :return: list of callback.
     """
     timer = TimerCallback()
     timer.set_model(model)
-    tensorboard_callback = TensorBoard(os.path.join(TENSORBOARD_DIR, 'base_tensorboard_logs'))
-    checkpoint_callback = ModelCheckpoint(os.path.join(CHECKPOINT_DIR, 'base_checkpoint',
+    tensorboard_callback = TensorBoard(os.path.join(log_dir, 'base_tensorboard_logs'))
+    checkpoint_callback = ModelCheckpoint(os.path.join(checkpoint_dir, 'base_checkpoint',
                                                        'train_point.h5'), save_best_only=True, period=1)
     return [tensorboard_callback, checkpoint_callback, timer]
 
@@ -609,7 +638,8 @@ def tune_loss_weight():
     # class_weight.compute_class_weight('balanced', np.unique(data[2].ravel()), data[2].ravel())
 
     print('weight initialized')
-    cls_weight = np.array([0.20200068, 173.43045439, 83.63201912, 102.70254409, 45.32739329])
+    # cls_weight = np.array([0.20200068, 173.43045439, 83.63201912, 102.70254409, 45.32739329])
+    cls_weight = np.array([1, 60, 60, 60, 60])
 
     # TODO: verify
     det_weight = np.array([0.50778351, 32.61919052])
@@ -619,13 +649,14 @@ def tune_loss_weight():
     return [det_weight, cls_weight, cls_weight_in_joint, joint_weight, kernel_weight]
 
 
-def save_model_weights(type, hyper):
+def save_model_weights(type, hyper, dir_path):
     """
     Set path to save model for each part of the model.
     :param type: type of the model, either detection, classification or joint.
     :param hyper: name with hyper param.
     """
-    model_weights = os.path.join(ROOT_DIR, 'model_weights')
+    #os.path.join(ROOT_DIR, 'model_weights')
+    model_weights = dir_path
     det_model_weights_saver = os.path.join(model_weights,
                                            str(type) + '_model_weights',
                                            hyper + '_' + str(type) + '_det_train_model.h5')
@@ -638,83 +669,4 @@ def save_model_weights(type, hyper):
     return [det_model_weights_saver, cls_model_weights_saver, joint_model_weights_saver]
 
 
-if __name__ == '__main__':
-    # TODO@alfred(20220116): 1. detecton performance is not good. 2. the loss for classification is wrong.
-    weights = tune_loss_weight()
 
-    CROP_SIZE = 64
-    BATCH_SIZE = 1
-    EPOCHS = Config.epoch
-    TRAIN_STEP_PER_EPOCH = 20
-    NUM_TO_CROP, NUM_TO_AUG = 20, 10
-
-    data = data_prepare(print_input_shape=True, print_image_shape=True)
-    network = SFCNnetwork(l2_regularizer=weights[-1])
-    # optimizer = SGD(lr=Config.lr, momentum=0.9, decay=1e-6, nesterov=True)
-    optimizer = Adam(lr=1e-3, decay=1e-4)
-    model_weights_saver = save_model_weights('base', str(EPOCHS))
-
-    # Train Detection Branch
-    if not os.path.exists(model_weights_saver[0]):
-        det_model = det_model_compile(nn=network, det_loss_weight=weights[0], optimizer=optimizer,
-                                      softmax_trainable=False, summary=True)
-        print('detection model is training')
-        det_model.fit_generator(generator_with_aug(data[0], data[1], data[2],
-                                                   crop_size=CROP_SIZE,
-                                                   batch_size=BATCH_SIZE,
-                                                   crop_num=NUM_TO_CROP, aug_num=NUM_TO_AUG,
-                                                   type='detection'),
-                                epochs=EPOCHS,
-                                steps_per_epoch=TRAIN_STEP_PER_EPOCH,
-                                validation_data=generator_origin(data[3], data[4], data[5],
-                                                                 batch_size=BATCH_SIZE,
-                                                                 type='detection'),
-                                validation_steps=int(np.ceil(data[3].shape[0] / BATCH_SIZE)),
-                                callbacks=callback_preparation(det_model),
-                                workers=4)
-
-        det_model.save_weights(model_weights_saver[0])
-
-    # Train Classification Branch
-    if not os.path.exists(model_weights_saver[1]):
-        print('classification model is training')
-        cls_model = cls_model_compile(nn=network, cls_loss_weight=weights[1],
-                                      optimizer=optimizer,
-                                      load_weights=model_weights_saver[0])
-        cls_model.fit_generator(generator_with_aug(data[0], data[1], data[2],
-                                                   crop_size=CROP_SIZE,
-                                                   batch_size=BATCH_SIZE,
-                                                   crop_num=NUM_TO_CROP, aug_num=NUM_TO_AUG,
-                                                   type='detection'),
-                                epochs=EPOCHS,
-                                steps_per_epoch=TRAIN_STEP_PER_EPOCH,
-                                validation_data=generator_with_aug(data[3], data[4], data[5],
-                                                                   batch_size=BATCH_SIZE, crop_size=CROP_SIZE,
-                                                                   crop_num=NUM_TO_CROP, aug_num=NUM_TO_AUG,
-                                                                   type='classification'),
-                                validation_steps=5,
-                                callbacks=callback_preparation(cls_model),
-                                workers=4)
-        cls_model.save_weights(model_weights_saver[1])
-
-    # Train Joint Model
-    if not os.path.exists(model_weights_saver[2]):
-        print('joint model is training')
-        joint_model = joint_model_compile(nn=network, det_loss_weight=weights[0], cls_loss_in_joint=weights[2],
-                                          joint_loss_weight=weights[3], optimizer=optimizer,
-                                          load_weights=model_weights_saver[1])
-        joint_model.fit_generator(generator_with_aug(data[0], data[1], data[2],
-                                                     crop_size=CROP_SIZE,
-                                                     batch_size=BATCH_SIZE,
-                                                     crop_num=NUM_TO_CROP, aug_num=NUM_TO_AUG,
-                                                     type='joint'),
-                                  epochs=EPOCHS,
-                                  steps_per_epoch=TRAIN_STEP_PER_EPOCH,
-                                  validation_data=generator_with_aug(data[3], data[4], data[5],
-                                                                     batch_size=BATCH_SIZE, crop_size=CROP_SIZE,
-                                                                     crop_num=NUM_TO_CROP, aug_num=NUM_TO_AUG,
-                                                                     type='joint'),
-                                  validation_steps=5,
-                                  callbacks=callback_preparation(joint_model),
-                                  workers=4)
-        joint_model.save_weights(model_weights_saver[2])

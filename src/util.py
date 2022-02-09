@@ -9,7 +9,7 @@ from scipy.io import loadmat
 from PIL import Image, ImageDraw, ImageEnhance
 from glob import glob
 from imgaug import augmenters as iaa
-from config import Config
+from .config import Config
 
 
 def _isArrayLike(obj):

@@ -1,23 +1,10 @@
 import os
-from data_manager import DataManager as dm
 import cv2
 from numpy.random import randint
 import numpy as np
 from imgaug import augmenters as iaa
-from util import check_directory,check_cv2_imwrite
-
-ROOT_DIR = os.getcwd()
-if ROOT_DIR.endswith('src'):
-    ROOT_DIR = os.path.dirname(ROOT_DIR)
-
-OLD_DATA_DIR = os.path.join(ROOT_DIR, 'CRCHistoPhenotypes_2016_04_28', 'Cls_and_Det')
-TRAIN_OLD_DATA_DIR = os.path.join(OLD_DATA_DIR, 'train')
-TEST_OLD_DATA_DIR = os.path.join(OLD_DATA_DIR, 'test')
-VALID_OLD_DATA_DIR = os.path.join(OLD_DATA_DIR, 'validation')
-TARGET_DATA_DIR = os.path.join(ROOT_DIR, 'crop_cls_and_det')
-TRAIN_TARGET_DATA_DIR = os.path.join(TARGET_DATA_DIR, 'train')
-TEST_TARGET_DATA_DIR = os.path.join(TARGET_DATA_DIR, 'test')
-VALID_TARGET_DATA_DIR = os.path.join(TARGET_DATA_DIR, 'validation')
+from .util import check_directory, check_cv2_imwrite
+from .data_manager import DataManager as dm
 
 
 def crop_image_parts(image, det_mask, cls_mask, origin_shape=(512, 512)):
@@ -31,8 +18,8 @@ def crop_image_parts(image, det_mask, cls_mask, origin_shape=(512, 512)):
     cropped_img3 = image[0: des_width, des_height: ori_height, :]
     cropped_img4 = image[des_width: ori_width, des_height: ori_height, :]
 
-    cropped_det_mask1 = det_mask[0: des_width, 0: des_height, :]              # 1, 3
-    cropped_det_mask2 = det_mask[des_width: ori_width, 0: des_height, :]      # 2, 4
+    cropped_det_mask1 = det_mask[0: des_width, 0: des_height, :]  # 1, 3
+    cropped_det_mask2 = det_mask[des_width: ori_width, 0: des_height, :]  # 2, 4
     cropped_det_mask3 = det_mask[0: des_width, des_height: ori_height, :]
     cropped_det_mask4 = det_mask[des_width: ori_width, des_height: ori_height, :]
 
@@ -61,19 +48,19 @@ def batch_crop_image_parts(ori_set, target_set):
         cls_mask = cv2.resize(cls_mask, (512, 512))
         crop_list = crop_image_parts(image, det_mask, cls_mask)
 
-        list_file_create = [os.path.join(target_set, str(file)+'_1'),
-                            os.path.join(target_set, str(file)+'_2'),
-                            os.path.join(target_set, str(file)+'_3'),
-                            os.path.join(target_set, str(file)+'_4')]
+        list_file_create = [os.path.join(target_set, str(file) + '_1'),
+                            os.path.join(target_set, str(file) + '_2'),
+                            os.path.join(target_set, str(file) + '_3'),
+                            os.path.join(target_set, str(file) + '_4')]
         check_directory(list_file_create)
-        list_img_create = [os.path.join(target_set, str(file)+ '_1', str(file)+'_1.bmp'),
-                           os.path.join(target_set, str(file)+ '_2', str(file)+'_2.bmp'),
-                           os.path.join(target_set, str(file)+ '_3', str(file)+'_3.bmp'),
-                           os.path.join(target_set, str(file)+'_4', str(file)+'_4.bmp'),
-                           os.path.join(target_set, str(file)+'_1',str(file)+'_1_detection.bmp'),
-                           os.path.join(target_set, str(file)+'_2',str(file)+'_2_detection.bmp'),
-                           os.path.join(target_set, str(file)+'_3',str(file)+'_3_detection.bmp'),
-                           os.path.join(target_set, str(file)+'_4',str(file)+'_4_detection.bmp'),
+        list_img_create = [os.path.join(target_set, str(file) + '_1', str(file) + '_1.bmp'),
+                           os.path.join(target_set, str(file) + '_2', str(file) + '_2.bmp'),
+                           os.path.join(target_set, str(file) + '_3', str(file) + '_3.bmp'),
+                           os.path.join(target_set, str(file) + '_4', str(file) + '_4.bmp'),
+                           os.path.join(target_set, str(file) + '_1', str(file) + '_1_detection.bmp'),
+                           os.path.join(target_set, str(file) + '_2', str(file) + '_2_detection.bmp'),
+                           os.path.join(target_set, str(file) + '_3', str(file) + '_3_detection.bmp'),
+                           os.path.join(target_set, str(file) + '_4', str(file) + '_4_detection.bmp'),
                            os.path.join(target_set, str(file) + '_1', str(file) + '_1_classification.bmp'),
                            os.path.join(target_set, str(file) + '_2', str(file) + '_2_classification.bmp'),
                            os.path.join(target_set, str(file) + '_3', str(file) + '_3_classification.bmp'),
@@ -85,20 +72,20 @@ def batch_crop_image_parts(ori_set, target_set):
 
         for order, img in enumerate(crop_list):
             check_cv2_imwrite(list_img_create[order], img)
-        #check_directory(list_file_create)
-        #cv2.imwrite
+        # check_directory(list_file_create)
+        # cv2.imwrite
+
 
 class ImageCropping:
-    def __init__(self, data_path = None, old_filename = None, new_filename = None):
+    def __init__(self, data_path=None, old_filename=None, new_filename=None):
         self.data_path = data_path
         self.old_filename = '{}/{}'.format(data_path, old_filename)
         self.new_filename = '{}/{}'.format(data_path, new_filename)
         dm.check_directory(self.new_filename)
         dm.initialize_train_test_folder(self.new_filename)
 
-
     @staticmethod
-    def crop_image_batch(image, masks=None, if_mask=True, if_det = True, if_cls = True,
+    def crop_image_batch(image, masks=None, if_mask=True, if_det=True, if_cls=True,
                          origin_shape=(500, 500), desired_shape=(64, 64)):
         assert image.ndim == 4
         ori_width, ori_height = origin_shape[0], origin_shape[1]
@@ -130,7 +117,7 @@ class ImageCropping:
             return cropped_img
 
     @staticmethod
-    def crop_image(image, masks=None, if_mask=True, if_det = True, if_cls = True,
+    def crop_image(image, masks=None, if_mask=True, if_det=True, if_cls=True,
                    origin_shape=(500, 500), desired_shape=(64, 64)):
         assert image.ndim == 3
         ori_width, ori_height = origin_shape[0], origin_shape[1]
@@ -163,6 +150,19 @@ class ImageCropping:
 
 
 if __name__ == '__main__':
+    ROOT_DIR = os.getcwd()
+    if ROOT_DIR.endswith('src'):
+        ROOT_DIR = os.path.dirname(ROOT_DIR)
+
+    OLD_DATA_DIR = os.path.join(ROOT_DIR, 'CRCHistoPhenotypes_2016_04_28', 'Cls_and_Det')
+    TRAIN_OLD_DATA_DIR = os.path.join(OLD_DATA_DIR, 'train')
+    TEST_OLD_DATA_DIR = os.path.join(OLD_DATA_DIR, 'test')
+    VALID_OLD_DATA_DIR = os.path.join(OLD_DATA_DIR, 'validation')
+    TARGET_DATA_DIR = os.path.join(ROOT_DIR, 'crop_cls_and_det')
+    TRAIN_TARGET_DATA_DIR = os.path.join(TARGET_DATA_DIR, 'train')
+    TEST_TARGET_DATA_DIR = os.path.join(TARGET_DATA_DIR, 'test')
+    VALID_TARGET_DATA_DIR = os.path.join(TARGET_DATA_DIR, 'validation')
+
     batch_crop_image_parts(TRAIN_OLD_DATA_DIR, TRAIN_TARGET_DATA_DIR)
     batch_crop_image_parts(TEST_OLD_DATA_DIR, TEST_TARGET_DATA_DIR)
     batch_crop_image_parts(VALID_OLD_DATA_DIR, VALID_TARGET_DATA_DIR)

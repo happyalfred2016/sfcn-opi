@@ -6,6 +6,21 @@ epsilon = 1e-7
 cls_threshold = 0.8
 
 
+def _gen_weight(y_true, weight):
+    weights = tf.convert_to_tensor(weight, dtype=tf.float32)
+    #
+    tensor_w = tf.zeros_like(y_true, dtype='float32')
+    for i in range(weights.shape[0]):
+        tensor_w += tf.cast(tf.equal(y_true, i), tf.float32) * weights[i]
+    return tensor_w
+    # c0 = tf.cast(tf.equal(y_true, 0), tf.float32) * weights[0]
+    # c1 = tf.cast(tf.equal(y_true, 1), tf.float32) * weights[1]
+    # c2 = tf.cast(tf.equal(y_true, 2), tf.float32) * weights[2]
+    # c3 = tf.cast(tf.equal(y_true, 3), tf.float32) * weights[3]
+    # c4 = tf.cast(tf.equal(y_true, 4), tf.float32) * weights[4]
+    # return c0 + c1 + c2 + c3 + c4
+
+
 def detection_loss(weight):
     """
     Detection loss for detection branch.
@@ -14,21 +29,13 @@ def detection_loss(weight):
 
     def _detection_loss(y_true, y_pred):
         _y_true = tf.squeeze(tf.cast(y_true, tf.int32), axis=-1)
-        weights = tf.stop_gradient((1 - y_true) * weight[0] + y_true * weight[1])
+        # y_true = tf.cast(y_true, tf.int32)
+        # weights = tf.stop_gradient((1 - y_true) * weight[0] + y_true * weight[1])
+        weights = tf.stop_gradient(_gen_weight(_y_true, weight))
         result = tf.losses.sparse_softmax_cross_entropy(_y_true, y_pred, weights=weights)
         return result
 
     return _detection_loss
-
-
-def _gen_weight(y_true, weight):
-    weights = tf.convert_to_tensor(weight, dtype=tf.float32)
-    c0 = tf.cast(tf.equal(y_true, 0), tf.float32) * weights[0]
-    c1 = tf.cast(tf.equal(y_true, 1), tf.float32) * weights[1]
-    c2 = tf.cast(tf.equal(y_true, 2), tf.float32) * weights[2]
-    c3 = tf.cast(tf.equal(y_true, 3), tf.float32) * weights[3]
-    c4 = tf.cast(tf.equal(y_true, 4), tf.float32) * weights[4]
-    return c0 + c1 + c2 + c3 + c4
 
 
 def classification_loss(weight, threshold=cls_threshold):
@@ -40,11 +47,14 @@ def classification_loss(weight, threshold=cls_threshold):
 
     def _classification_loss(y_true, y_pred):
         _y_true = tf.squeeze(tf.cast(y_true, tf.int32), axis=-1)
-        indicator = tf.greater_equal(K.sum(K.softmax(y_pred, axis=-1)[:, :, :, 1:], axis=-1, keepdims=True),
-                                     threshold, name='indicator_great')
-        indicator = tf.cast(indicator, tf.float32, name='indicator_cast')
-        weights = tf.stop_gradient(_gen_weight(y_true, weight)) * indicator
+        # y_true = tf.cast(y_true, tf.int32)
+        # indicator = tf.greater_equal(K.sum(K.softmax(y_pred, axis=-1)[:, :, :, 1:], axis=-1, keepdims=True),
+        #                              threshold, name='indicator_great')
+        # indicator = tf.cast(indicator, tf.float32, name='indicator_cast')
+        # weights = tf.stop_gradient(_gen_weight(y_true, weight)) * indicator
+        weights = tf.stop_gradient(_gen_weight(_y_true, weight))
         loss = tf.losses.sparse_softmax_cross_entropy(_y_true, y_pred, weights=weights)
+        # loss = tf.losses.sparse_softmax_cross_entropy(_y_true, y_pred)
         return loss
 
     return _classification_loss
@@ -76,7 +86,8 @@ def joint_loss(det_weights, cls_joint_weights, joint_weights, cls_threshold=cls_
             indicator = tf.greater_equal(K.sum(K.softmax(y_pred, axis=-1)[:, :, :, 1:], axis=-1, keepdims=True),
                                          threshold, name='indicator_great')
             indicator = tf.cast(indicator, tf.float32, name='indicator_cast')
-            weights = tf.stop_gradient(_gen_weight(y_true, cls_joint_weights)) * indicator
+            # weights = tf.stop_gradient(_gen_weight(y_true, cls_joint_weights)) * indicator
+            weights = tf.stop_gradient(_gen_weight(y_true, cls_joint_weights))
             loss = tf.losses.sparse_softmax_cross_entropy(_y_true, y_pred, weights=weights)
 
             return loss
