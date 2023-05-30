@@ -1,6 +1,5 @@
 import keras.backend as K
 import tensorflow as tf
-import numpy as np
 
 epsilon = 1e-7
 cls_threshold = 0.8

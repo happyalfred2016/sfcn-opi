@@ -1,25 +1,12 @@
 import numpy as np
-from keras.optimizers import SGD
 import os
 import matplotlib.pyplot as plt
 from scipy.special import softmax
 from sklearn.metrics import precision_score, recall_score
 import cv2
-
-from .config import Config
-from .model import data_prepare, SFCNnetwork, save_model_weights, det_model_compile, cls_model_compile, \
-    joint_model_compile, generator_without_aug, generator_with_aug, generator_origin, tune_loss_weight
 from .metric import non_max_suppression
 
-weights = tune_loss_weight()
-CROP_SIZE = 64
-BATCH_SIZE = 1
-EPOCHS = Config.epoch
-TRAIN_STEP_PER_EPOCH = 20
-NUM_TO_CROP, NUM_TO_AUG = 20, 10
 eps = 1e-6
-
-
 
 
 def truelabel_center_extract(cls_img, cla_list):
@@ -28,7 +15,7 @@ def truelabel_center_extract(cls_img, cla_list):
                     [1, 1, 1, 1, 1],
                     [0, 1, 1, 1, 0],
                     [0, 0, 1, 0, 0]])
-    fimg = cv2.filter2D(cls_img, -1, ker)
+    fimg = cv2.filter2D(cls_img.astype(float), -1, ker)
 
     # plt.figure()
     # plt.matshow(cls_img)
@@ -38,21 +25,36 @@ def truelabel_center_extract(cls_img, cla_list):
     #
     #     plt.scatter(coors[:, 1], coors[:,0], s=1)
     #
-    # ax = plt.gca()  # 获取到当前坐标轴信息
-    # ax.xaxis.set_ticks_position('top')  # 将X坐标轴移到上面
+    # ax = plt.gca()  #
+    # ax.xaxis.set_ticks_position('top')  #
     # ax.invert_yaxis()
     # plt.show()
 
     return {i: np.stack(np.where(np.isclose(fimg, i * ker.sum())), axis=1) for i in cla_list}
 
 
+# TODO@alfred(20220216): low pass filtering
 def prelabel_center_extract(pre_map, overlap_thresh, nmsr, prob_thresh):
     bound_xy = non_max_suppression(pre_map[:, :, 1:].sum(axis=-1), overlap_thresh=overlap_thresh, max_boxes=1200,
                                    r=nmsr, prob_thresh=prob_thresh)
     coors = np.stack([(bound_xy[:, 1] + bound_xy[:, 3]) / 2,
                       (bound_xy[:, 0] + bound_xy[:, 2]) / 2], axis=1).astype(int)
 
-    pre_cls = pre_map[coors[:, 0], coors[:, 1], 1:].argmax(axis=-1) + 1
+    def find_cls(r, coors, pre_map):
+        pre_cls_list = []
+        for i in range(-r, r + 1):
+            for j in range(-r, r + 1):
+                # TODO: which one?
+                pre_cls_list.append(pre_map[coors[:, 0] + i, coors[:, 1] + j, :].argmax(axis=-1))
+                # pre_cls_list.append(pre_map[coors[:, 0] + i, coors[:, 1] + j, 1:].argmax(axis=-1) + 1)
+        pre_cls_list = np.stack(pre_cls_list, axis=-1)
+        final_cls = []
+        for cls_inx, count in [np.unique(arr, return_counts=True) for arr in pre_cls_list]:
+            final_cls.append(cls_inx[count.argmax()])
+
+        return np.array(final_cls)
+
+    pre_cls = find_cls(r=2, coors=coors, pre_map=pre_map)
 
     return coors, pre_cls
 
@@ -60,8 +62,8 @@ def prelabel_center_extract(pre_map, overlap_thresh, nmsr, prob_thresh):
 def eval_pre(true_map, pre_map, r=6, overlap_thresh=0.3, nmsr=15, prob_thresh=0.65):
     '''
 
-    :param true_map: shape = (b, h, w, 1)
-    :param pre_coors: shape = (b, n, 2)
+    :param true_map: shape = (b, h, w, class)
+    :param pre_coors: shape = (b, h, w, class)
     :param r:
     :return:
     '''
@@ -73,9 +75,7 @@ def eval_pre(true_map, pre_map, r=6, overlap_thresh=0.3, nmsr=15, prob_thresh=0.
     pre_clss = []
     for i in range(true_map.shape[0]):
         true_coors.append(truelabel_center_extract(true_map[i, :, :, 0], cls_list))
-
         coors, pre_cls = prelabel_center_extract(pre_map[i], overlap_thresh, nmsr, prob_thresh)
-
         pre_coors.append(coors)
         pre_clss.append(pre_cls)
 
@@ -113,6 +113,19 @@ def eval_pre(true_map, pre_map, r=6, overlap_thresh=0.3, nmsr=15, prob_thresh=0.
 
 
 if __name__ == '__main__':
+    from .config import Config
+    from keras.optimizers import SGD
+    from .model import data_prepare, SFCNnetwork, save_model_weights, det_model_compile, cls_model_compile, \
+        joint_model_compile, generator_without_aug, generator_with_aug, generator_origin, tune_loss_weight
+
+    CROP_SIZE = 64
+    BATCH_SIZE = 1
+
+    TRAIN_STEP_PER_EPOCH = 20
+    NUM_TO_CROP, NUM_TO_AUG = 20, 10
+
+    weights = tune_loss_weight()
+    EPOCHS = Config.epoch
     ROOT_DIR = os.path.dirname(os.path.dirname(__file__))
     data_dir = os.path.join(ROOT_DIR, 'CRCHistoPhenotypes_2016_04_28', 'Cls_and_Det')
 
@@ -279,65 +292,3 @@ if __name__ == '__main__':
         count += 1
         if count > 4:
             break
-
-    # count = 0
-    # for im, la in generator_origin(test_img, test_det, test_cls,
-    #                                batch_size=BATCH_SIZE, type='detection'):
-    #     im_in = im[0:1]
-    #     la_in = la[0].squeeze()
-    #
-    #     pre = det_model.predict(im_in)
-    #     pre = softmax(pre, axis=-1)[0, :, :]
-    #
-    #     joint_pre = joint_model.predict(im)
-    #     joint_pre = softmax(joint_pre, axis=-1)
-    #     pre[:, :, 0] = joint_pre[0, :, :, 0]
-    #     pre[:, :, 1] = joint_pre[0, :, :, 1:].sum(axis=-1)
-    #     prob_thresh = 0.7
-    #
-    #     pre_coors, pre_cls = prelabel_center_extract(pre, overlap_thresh=0.3, nmsr=15, prob_thresh=prob_thresh)
-    #
-    #     plt.figure(figsize=(12, 3))
-    #     plt.subplot(141)
-    #     plt.imshow(im_in[0].astype(np.uint8))
-    #
-    #     plt.subplot(142)
-    #     plt.imshow((pre[:, :, -1] * 255).astype(np.uint8))
-    #
-    #     plt.subplot(143)
-    #     # plt.imshow(im_in[0].astype(np.uint8), alpha=0.7)
-    #     # plt.imshow((la_in * 255).astype(np.uint8), alpha=la_in)
-    #     plt.imshow((pre[:, :, -1] * 255).astype(np.uint8))
-    #     plt.scatter(pre_coors[:, 1], pre_coors[:, 0], s=15, alpha=0.4, c='tab:red')
-    #
-    #     plt.subplot(144)
-    #     plt.imshow((la_in * 255).astype(np.uint8), alpha=la_in)
-    #     plt.scatter(pre_coors[:, 1], pre_coors[:, 0], s=15, alpha=0.4, c='tab:red')
-    #
-    #     plt.show()
-    #
-    #     count += 1
-    #     if count > 4:
-    #         break
-
-# def load_zs():
-#     path = r'../zhongshan_20220112_labeled'
-#     for file in os.listdir(path):
-#         if '.tif' in file:
-#             img_path = os.path.join(path, file)
-#             img = cv2.imread(img_path)
-#             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-#             img = cv2.resize(img, (512, 512))  # convert to 20x
-#
-#             joint_pre = joint_model.predict(np.expand_dims(img, 0))
-#             joint_pre = softmax(joint_pre, axis=-1)
-#             pre = np.zeros([512, 512, 2])
-#             pre[:, :, 0] = joint_pre[0, :, :, 0]
-#             pre[:, :, 1] = joint_pre[0, :, :, 1:].sum(axis=-1)
-#
-#
-#             coors, _ = prelabel_center_extract(pre, overlap_thresh=0.3, nmsr=12, prob_thresh=0.6)
-#
-#             plt.imshow(img)
-#             plt.scatter(coors[:, 1], coors[:, 0], s=5, c='r')
-#             plt.show()

@@ -1,11 +1,7 @@
 import numpy as np
-import matplotlib.pyplot as plt
-import scipy.misc as misc
-import os
-import cv2
-import scipy.io as sio
 
 epsilon = 1e-7
+
 
 def non_max_suppression(img, overlap_thresh=0.1, max_boxes=1200, r=5, prob_thresh=0.85):
     """

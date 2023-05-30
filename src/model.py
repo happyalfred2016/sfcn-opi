@@ -5,19 +5,13 @@ import keras.backend as K
 from keras.layers import Input, Conv2D, Add, BatchNormalization, Activation, Lambda, Multiply, Conv2DTranspose, \
     Concatenate
 from keras.models import Model
-
 from keras.callbacks import EarlyStopping, TensorBoard, ModelCheckpoint, Callback
 import os, time
-from imgaug import augmenters as iaa
-
-from .util import load_data
-from .image_augmentation import ImageCropping
 from .loss import detection_loss, classification_loss, joint_loss
 
 
 weight_decay = 0.005
 epsilon = 1e-7
-
 
 
 class Conv3l2(keras.layers.Conv2D):
@@ -74,8 +68,8 @@ class SFCNnetwork:
         # img /= (np.std(img, keepdims=True) + 1e-7)
 
         x = keras.layers.Lambda(lambda x: x / 255.)(inputs)
-        x = keras.layers.Lambda(lambda x: x - K.mean(x, keepdims=True))(x)
-        x = keras.layers.Lambda(lambda x: x / (K.std(x, keepdims=True) + 1e-7))(x)
+        x = keras.layers.Lambda(lambda x: x - K.mean(x, axis=[-3, -2, -1], keepdims=True))(x)
+        x = keras.layers.Lambda(lambda x: x / (K.std(x, axis=[-3, -2, -1], keepdims=True) + 1e-7))(x)
         return x
 
     def first_layer(self, inputs, trainable=True):
@@ -161,8 +155,8 @@ class SFCNnetwork:
                     x = self.convolution_block(f=filter, stage=stage, block=block, inputs=inputs,
                                                trainable=trainable)
                 else:
-                    x = self.identity_block(f=filter, stage=stage, block=block, inputs=x,
-                                            trainable=trainable)
+                    x = self.identity_block(f=filter, stage=stage, block=block,
+                                            inputs=x, trainable=trainable)
         return x
 
     ######################
@@ -273,20 +267,23 @@ class SFCNnetwork:
     def _mcls_branch_wrapper(self, input_one, input_two, trainable=True, softmax_trainable=False, num_class=5):
 
         x_divergent_one = Conv2D(filters=num_class, kernel_size=(1, 1), padding='same',
-                                 trainable=trainable, kernel_initializer='glorot_normal', bias_initializer='zeros')(input_one)
+                                 trainable=trainable, kernel_initializer='glorot_normal', bias_initializer='zeros')(
+            input_one)
         x_divergent_one = BatchNormalization(trainable=trainable)(x_divergent_one)
         x_divergent_one = Activation('relu', trainable=trainable)(x_divergent_one)
 
         x_divergent_two = self.res_block(input_two, filter=128, stages=9, block=4)
         x_divergent_two = Conv2D(filters=num_class, kernel_size=(1, 1), padding='same',
                                  kernel_regularizer=keras.regularizers.l2(self.l2r),
-                                 trainable=trainable, kernel_initializer='glorot_normal', bias_initializer='zeros')(x_divergent_two)
+                                 trainable=trainable, kernel_initializer='glorot_normal', bias_initializer='zeros')(
+            x_divergent_two)
         x_divergent_two = BatchNormalization(trainable=trainable)(x_divergent_two)
         x_divergent_two = Activation('relu', trainable=trainable)(x_divergent_two)
 
         x_divergent_two = Conv2DTranspose(filters=num_class, kernel_size=(3, 3), strides=(2, 2), padding='same',
                                           kernel_regularizer=keras.regularizers.l2(self.l2r),
-                                          trainable=trainable, kernel_initializer='glorot_normal', bias_initializer='zeros')(x_divergent_two)
+                                          trainable=trainable, kernel_initializer='glorot_normal',
+                                          bias_initializer='zeros')(x_divergent_two)
         x_divergent_two = BatchNormalization(trainable=trainable)(x_divergent_two)
         x_divergent_two = Activation('relu', trainable=trainable)(x_divergent_two)
 
@@ -294,7 +291,8 @@ class SFCNnetwork:
         # x_merge = x_divergent_two
         x_detection = Conv2DTranspose(filters=num_class, kernel_size=(3, 3), strides=(2, 2), padding='same',
                                       kernel_regularizer=keras.regularizers.l2(self.l2r),
-                                      trainable=trainable, kernel_initializer='glorot_normal', bias_initializer='zeros')(x_merge)
+                                      trainable=trainable, kernel_initializer='glorot_normal',
+                                      bias_initializer='zeros')(x_merge)
         x_detection = BatchNormalization(trainable=trainable)(x_detection)
         # The detection output
         if softmax_trainable == True:
@@ -372,184 +370,6 @@ class TimerCallback(Callback):
 
     def on_epoch_end(self, epoch, logs=None):
         print('epoch takes {} seconds to train'.format(np.round(time.time() - self.epoch_time), 2))
-
-
-def data_prepare(data_dir, print_image_shape=False, print_input_shape=False):
-    """
-    prepare data for model.
-    :param print_image_shape: print image shape if set true.
-    :param print_input_shape: print input shape(after categorize) if set true
-    :return: list of input to model
-    """
-
-    def reshape_mask(origin, cate, num_class):
-        return cate.reshape((origin.shape[0], origin.shape[1], origin.shape[2], num_class))
-
-    train_imgs, train_det_masks, train_cls_masks = load_data(data_path=data_dir, type='train')
-    valid_imgs, valid_det_masks, valid_cls_masks = load_data(data_path=data_dir, type='validation')
-    test_imgs, test_det_masks, test_cls_masks = load_data(data_path=data_dir, type='test')
-
-    if print_image_shape:
-        print('Image shape print below: ')
-        print('train_imgs: {}, train_det_masks: {}, train_cls_masks: {}'.format(train_imgs.shape, train_det_masks.shape,
-                                                                                train_cls_masks.shape))
-        print(
-            'valid_imgs: {}, valid_det_masks: {}, validn_cls_masks: {}'.format(valid_imgs.shape, valid_det_masks.shape,
-                                                                               valid_cls_masks.shape))
-        print('test_imgs: {}, test_det_masks: {}, test_cls_masks: {}'.format(test_imgs.shape, test_det_masks.shape,
-                                                                             test_cls_masks.shape))
-        print()
-
-    train_det, train_cls = np.expand_dims(train_det_masks, axis=-1), np.expand_dims(train_cls_masks, axis=-1)
-    valid_det, valid_cls = np.expand_dims(valid_det_masks, axis=-1), np.expand_dims(valid_cls_masks, axis=-1)
-    test_det, test_cls = np.expand_dims(test_det_masks, axis=-1), np.expand_dims(test_cls_masks, axis=-1)
-
-    if print_input_shape:
-        print('input shape print below: ')
-        print('train_imgs: {}, train_det: {}, train_cls: {}'.format(train_imgs.shape, train_det.shape, train_cls.shape))
-        print(
-            'valid_imgs: {}, valid_det: {}, validn_cls: {}'.format(valid_imgs.shape, valid_det.shape, valid_cls.shape))
-        print('test_imgs: {}, test_det: {}, test_cls: {}'.format(test_imgs.shape, test_det.shape, test_cls.shape))
-        print()
-    return [train_imgs, train_det, train_cls, valid_imgs, valid_det, valid_cls, test_imgs, test_det, test_cls]
-
-
-def crop_on_fly(img, det_mask, cls_mask, crop_size):
-    """
-    Crop image randomly on each training batch
-    """
-    imgcrop = ImageCropping()
-    cropped_img, cropped_det_mask, cropped_cls_mask = imgcrop.crop_image_batch(img, [det_mask, cls_mask],
-                                                                               desired_shape=(crop_size, crop_size))
-    return cropped_img, cropped_det_mask, cropped_cls_mask
-
-
-def aug_on_fly(img, det_mask, cls_mask):
-    """Do augmentation with different combination on each training batch
-    """
-
-    def image_basic_augmentation(image, masks, ratio_operations=0.9):
-        # without additional operations
-        # according to the paper, operations such as shearing, fliping horizontal/vertical,
-        # rotating, zooming and channel shifting will be apply
-        sometimes = lambda aug: iaa.Sometimes(ratio_operations, aug)
-        hor_flip_angle = np.random.uniform(0, 1)
-        ver_flip_angle = np.random.uniform(0, 1)
-        seq = iaa.Sequential([
-            sometimes(
-                iaa.SomeOf((0, 5), [
-                    iaa.Fliplr(hor_flip_angle),
-                    iaa.Flipud(ver_flip_angle),
-                    iaa.Affine(shear=(-16, 16)),
-                    iaa.Affine(scale={'x': (1, 1.6), 'y': (1, 1.6)}),
-                    iaa.PerspectiveTransform(scale=(0.01, 0.1))
-                ]))
-        ])
-
-        seq_to_deterministic = seq.to_deterministic()
-        aug_img, aug_det_mask = seq_to_deterministic(images=image, segmentation_maps=masks[0])
-        _aug_img, aug_cls_mask = seq_to_deterministic(images=image, segmentation_maps=masks[1])
-
-        assert np.isclose(_aug_img, aug_img).all()
-        return aug_img, aug_det_mask, aug_cls_mask
-
-    aug_image, aug_det_mask, aug_cls_mask = image_basic_augmentation(image=img, masks=[det_mask, cls_mask])
-    return aug_image, aug_det_mask, aug_cls_mask
-
-
-def generator_with_aug(features, det_labels, cls_labels, batch_size, crop_size,
-                       type,
-                       crop_num=15, aug_num=10):
-    """
-    generator with basic augmentations which have been in the paper.
-    :param features: image.
-    :param det_labels: detection mask as label
-    :param cls_labels: classification mask as label
-    :param batch_size: batch size
-    :param crop_size: default size is 64
-    :param type: type must be one of detection, classification or joint
-    :param crop_num: how many cropped image for a single image.
-    :param aug_num: num of augmentation per cropped image
-    """
-    assert type in ['detection', 'classification', 'joint']
-    batch_features = np.zeros((batch_size * crop_num * aug_num, crop_size, crop_size, 3))
-    batch_det_labels = np.zeros((batch_size * crop_num * aug_num, crop_size, crop_size, det_labels.shape[-1]))
-    batch_cls_labels = np.zeros((batch_size * crop_num * aug_num, crop_size, crop_size, cls_labels.shape[-1]))
-    while True:
-        counter = 0
-        for i in range(batch_size):
-            index = np.random.choice(features.shape[0], 1)
-            for j in range(crop_num):
-                feature_index = features[index]
-                det_label_index = det_labels[index]
-                cls_label_index = cls_labels[index]
-                feature, det_label, cls_label = crop_on_fly(feature_index,
-                                                            det_label_index,
-                                                            cls_label_index,
-                                                            crop_size=crop_size)
-                for k in range(aug_num):
-                    aug_feature, aug_det_label, aug_cls_label = aug_on_fly(feature, det_label, cls_label)
-                    batch_features[counter] = aug_feature
-                    batch_det_labels[counter] = aug_det_label
-                    batch_cls_labels[counter] = aug_cls_label
-                    counter = counter + 1
-        if type == 'detection':
-            yield batch_features, batch_det_labels
-        elif type == 'classification' or type == 'joint':
-            yield batch_features, batch_cls_labels
-
-
-def generator_without_aug(features, det_labels, cls_labels, batch_size, crop_size,
-                          type, crop_num=25):
-    """
-    generator without any augmentation, only randomly crop image into [64, 64, channel].
-    :param features: image.
-    :param det_labels: detection mask as label
-    :param cls_labels: classification mask as label
-    :param batch_size: batch size
-    :param crop_size: default size is 64
-    :param crop_num: how many cropped image for a single image.
-    """
-    batch_features = np.zeros((batch_size * crop_num, crop_size, crop_size, 3))
-    batch_det_labels = np.zeros((batch_size * crop_num, crop_size, crop_size, det_labels.shape[-1]))
-    batch_cls_labels = np.zeros((batch_size * crop_num, crop_size, crop_size, cls_labels.shape[-1]))
-    while True:
-        counter = 0
-        for i in range(batch_size):
-            index = np.random.choice(features.shape[0], 1)
-            for j in range(crop_num):
-                feature, det_label, cls_label = crop_on_fly(features[index], det_labels[index],
-                                                            cls_labels[index], crop_size=crop_size)
-                batch_features[counter] = feature
-                batch_det_labels[counter] = det_label
-                batch_cls_labels[counter] = cls_label
-                counter += 1
-        if type == 'detection':
-            yield batch_features, batch_det_labels
-        elif type == 'classification' or type == 'joint':
-            yield batch_features, batch_cls_labels
-
-
-def generator_origin(features, det_labels, cls_labels, batch_size, type):
-    img_h, img_w = features.shape[1], features.shape[2]
-    batch_features = np.zeros((batch_size, img_h, img_w, 3))
-    batch_det_labels = np.zeros((batch_size, img_h, img_w, det_labels.shape[-1]))
-    batch_cls_labels = np.zeros((batch_size, img_h, img_w, cls_labels.shape[-1]))
-
-    counter = 0
-    while True:
-
-        nbat = counter % int(np.ceil(features.shape[0] / batch_size))
-        counter += 1
-        for index in range(nbat * batch_size, min((nbat + 1) * batch_size, features.shape[0])):
-            batch_features[index % batch_size] = features[index]
-            batch_det_labels[index % batch_size] = det_labels[index]
-            batch_cls_labels[index % batch_size] = cls_labels[index]
-
-        if type == 'detection':
-            yield batch_features, batch_det_labels
-        elif type == 'classification' or type == 'joint':
-            yield batch_features, batch_cls_labels
 
 
 def callback_preparation(model, log_dir, checkpoint_dir):
@@ -655,7 +475,7 @@ def save_model_weights(type, hyper, dir_path):
     :param type: type of the model, either detection, classification or joint.
     :param hyper: name with hyper param.
     """
-    #os.path.join(ROOT_DIR, 'model_weights')
+    # os.path.join(ROOT_DIR, 'model_weights')
     model_weights = dir_path
     det_model_weights_saver = os.path.join(model_weights,
                                            str(type) + '_model_weights',
@@ -667,6 +487,3 @@ def save_model_weights(type, hyper, dir_path):
                                              str(type) + '_model_weights',
                                              hyper + '_' + str(type) + '_joint_train_model.h5')
     return [det_model_weights_saver, cls_model_weights_saver, joint_model_weights_saver]
-
-
-

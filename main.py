@@ -1,26 +1,13 @@
 import numpy as np
-from numpy import append
-import tensorflow as tf
-import keras
-import keras.backend as K
-from keras.layers import Input, Conv2D, Add, BatchNormalization, Activation, Lambda, Multiply, Conv2DTranspose, \
-    Concatenate
-from keras.models import Model
-from keras.utils import np_utils
 from keras.optimizers import SGD, Adam
-from keras.callbacks import EarlyStopping, TensorBoard, ModelCheckpoint, Callback
-import os, time
-from imgaug import augmenters as iaa
+import os
 from scipy.special import softmax
 
-from src.util import load_data
-from src.image_augmentation import ImageCropping
-from src.loss import detection_loss, classification_loss, joint_loss
 from src.config import Config
 from src.predict import eval_pre
-from src.model import tune_loss_weight, data_prepare, SFCNnetwork, save_model_weights, det_model_compile, \
-    cls_model_compile, joint_model_compile, generator_origin, generator_with_aug, generator_without_aug, \
-    callback_preparation
+from src.model import tune_loss_weight, SFCNnetwork, save_model_weights, det_model_compile, \
+    cls_model_compile, joint_model_compile, callback_preparation
+from src.data import data_prepare, generator_origin, generator_with_aug, generator_without_aug
 
 weight_decay = 0.005
 epsilon = 1e-7
@@ -70,16 +57,6 @@ if __name__ == '__main__':
 
     test_img, test_det, test_cls = data[6], data[7], data[8]
 
-    # for im, la in generator_origin(test_img, test_det, test_cls,
-    #                                batch_size=test_img.shape[0], type='detection'):
-    #     det_pre = det_model.predict(im)
-    #     det_pre = softmax(det_pre, axis=-1)
-    #     p, r = eval_pre(la, det_pre, prob_thresh=0.5)
-    #     print('detection: precision: %.3f, recall: %.3f' % (p, r))
-    #     break
-
-    # Train Classification Branch
-    # if not os.path.exists(model_weights_saver[1]):
     if True:
         print('classification model is training')
         cls_model = cls_model_compile(nn=network, cls_loss_weight=weights[1],
@@ -90,12 +67,12 @@ if __name__ == '__main__':
                                                    crop_size=CROP_SIZE,
                                                    batch_size=BATCH_SIZE,
                                                    crop_num=NUM_TO_CROP, aug_num=NUM_TO_AUG,
-                                                   type='detection'),
+                                                   type='classification'),
                                 epochs=EPOCHS,
                                 steps_per_epoch=TRAIN_STEP_PER_EPOCH,
                                 validation_data=generator_origin(data[3], data[4], data[5],
                                                                  batch_size=BATCH_SIZE,
-                                                                 type='detection'),
+                                                                 type='classification'),
                                 validation_steps=int(np.ceil(data[3].shape[0] / BATCH_SIZE)),
                                 callbacks=callback_preparation(cls_model, TENSORBOARD_DIR, CHECKPOINT_DIR),
                                 workers=4)
